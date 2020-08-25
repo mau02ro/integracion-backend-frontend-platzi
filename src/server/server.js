@@ -16,7 +16,7 @@ import passport from 'passport';
 import axios from 'axios';
 import reducer from '../frontend/reducers';
 import Layout from '../frontend/components/Layout';
-import initialState from '../frontend/initialState';
+// import initialState from '../frontend/initialState';
 import serverRoutes from '../frontend/routes/serverRoutes';
 import getManifest from './getManifest';
 
@@ -25,7 +25,6 @@ dotenv.config();
 const app = express();
 const { ENV, PORT } = process.env;
 
-const config = {}
 
 app.use(express.json())
 app.use(cookieParser())
@@ -80,14 +79,45 @@ const setResponse = (html, preloadedState, manifest) => {
   );
 };
 
-const renderApp = (req, res) => {
+const renderApp = async (req, res) => {
+  let initialState;
+
+  const {email,token, name, id} = req.cookies;
+  try {
+    let movieList = await axios({
+      url: `${process.env.API_URL}/api/movies`,
+      headers: { Authorization: `Bearer ${token}` },
+      method: 'get'
+    })
+    
+    movieList = movieList.data.data;
+    initialState = {
+      user: {
+        email,
+        name,
+        id
+      },
+      myList: [],
+      trends: movieList.filter(movie => movie.contentRating === 'PG' && movie._id),
+      originals: movieList.filter(movie => movie.contentRating === 'G' && movie._id)
+    }
+  } catch (error) {
+    initialState = {
+      user: {},
+      myList: [],
+      trends: [],
+      originals: []
+    }
+  }
+
   const store = createStore(reducer, initialState);
   const preloadedState = store.getState();
+  const isLogged = (initialState.user.id);
   const html = renderToString(
     <Provider store={store}>
       <StaticRouter location={req.url} context={{}}>
         <Layout>
-          {renderRoutes(serverRoutes)}
+          {renderRoutes(serverRoutes(isLogged))}
         </Layout>
       </StaticRouter>
     </Provider>
@@ -102,16 +132,16 @@ app.post("/auth/sign-in", async function (req, res, next) {
         next(boom.unauthorized());
       }
 
-      req.login(data, { session: false }, async function (errors) {
-        if (errors) {
-          next(errors);
+      req.login(data, { session: false }, async function (err) {
+        if (err) {
+          next(err);
         }
 
         const { token, ...user } = data;
 
         res.cookie("token", token, {
-          httpOnly: !config.dev,
-          secure: !config.dev
+          httpOnly: false,
+          secure: false
         });
 
         res.status(200).json(user);
