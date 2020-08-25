@@ -10,6 +10,10 @@ import { StaticRouter } from 'react-router-dom';
 import { renderRoutes } from 'react-router-config';
 import { Provider } from 'react-redux';
 import { createStore } from 'redux';
+import cookieParser from 'cookie-parser';
+import boom from '@hapi/boom';
+import passport from 'passport';
+import axios from 'axios';
 import reducer from '../frontend/reducers';
 import Layout from '../frontend/components/Layout';
 import initialState from '../frontend/initialState';
@@ -20,6 +24,15 @@ dotenv.config();
 
 const app = express();
 const { ENV, PORT } = process.env;
+
+const config = {}
+
+app.use(express.json())
+app.use(cookieParser())
+app.use(passport.initialize())
+app.use(passport.session())
+
+require('./utils/auth/strategis/basic')
 
 if (ENV === 'development') {
   const webPackConfig = require('../../webpack.config');
@@ -82,9 +95,59 @@ const renderApp = (req, res) => {
   res.send(setResponse(html, preloadedState, req.hashManifest));
 };
 
+app.post("/auth/sign-in", async function (req, res, next) {
+  passport.authenticate("basic", function (error, data) {
+    try {
+      if (error || !data) {
+        next(boom.unauthorized());
+      }
+
+      req.login(data, { session: false }, async function (errors) {
+        if (errors) {
+          next(errors);
+        }
+
+        const { token, ...user } = data;
+
+        res.cookie("token", token, {
+          httpOnly: !config.dev,
+          secure: !config.dev
+        });
+
+        res.status(200).json(user);
+      });
+    } catch (err) {
+      next(err);
+    }
+  })(req, res, next);
+});
+
+app.post("/auth/sign-up", async function (req, res, next) {
+
+  const { body: user } = req;
+
+  try {
+    const userData = await axios({
+      url: `${process.env.API_URL}/api/auth/sign-up`,
+      method: "post",
+      data: {
+        email: user.email,
+        name: user.name,
+        password: user.password
+      }
+    });
+
+    res.status(201).json({ name: req.body.name, email: req.body.email, id: userData.data.id });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get('*', renderApp);
 
 app.listen(PORT, (err) => {
+  // eslint-disable-next-line no-console
   if (err) console.log(err);
+  // eslint-disable-next-line no-console
   else console.log(`${ENV} server running on Port ${PORT}`);
 });
